@@ -1,0 +1,24 @@
+name: WorldCupDuck
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+targets:
+  WorldCupDuck:
+    type: application
+    platform: iOS
+    sources:
+      - path: WorldCupDuck
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duck.worldcup.ios
+        PRODUCT_NAME: WorldCupDuck
+        INFOPLIST_FILE: WorldCupDuck/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        DEVELOPMENT_TEAM: ""
