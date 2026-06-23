@@ -202,8 +202,11 @@ class MainActivity : Activity() {
         }
     }
 
-    // Full-page pixel-perfect screenshot: scroll the WebView in viewport-tall steps,
-    // draw each strip into one tall bitmap, then save. Restores the scroll position after.
+    // Full-page screenshot. Android WebView is hardware-accelerated and only paints the visible
+    // tiles, so drawing scrolled content to a software Canvas comes out black. We therefore switch
+    // the WebView to a SOFTWARE layer (which renders the whole document) and lay it out at full
+    // content height, then a single draw() captures the entire page. The <video> background can't
+    // render in software mode, so it appears dark in the capture (same as the web html2canvas path).
     private fun doCaptureScreen(filename: String) {
         try {
             val w = webView.width
@@ -212,45 +215,36 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
                 return
             }
-            val total = (webView.contentHeight * resources.displayMetrics.density).toInt().coerceAtLeast(vh)
-            // Single viewport is enough -> capture directly.
-            if (total <= vh) {
+            val fullH = (webView.contentHeight * resources.displayMetrics.density).toInt().coerceAtLeast(vh)
+            val capped = minOf(fullH, vh * 12) // guard against OOM on extreme pages
+
+            // Short page -> the visible hardware layer is fine, capture directly.
+            if (capped <= vh) {
                 val bmp = Bitmap.createBitmap(w, vh, Bitmap.Config.ARGB_8888)
                 webView.draw(android.graphics.Canvas(bmp))
                 saveBitmap(bmp, filename)
                 return
             }
-            val capped = minOf(total, vh * 12) // guard against OOM on extreme pages
-            val full = Bitmap.createBitmap(w, capped, Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(full)
-            val savedScroll = webView.scrollY
 
-            // Scroll offsets covering [0, capped); last clamped to the bottom.
-            val offsets = ArrayList<Int>()
-            var y = 0
-            while (y < capped) {
-                offsets.add(minOf(y, (capped - vh).coerceAtLeast(0)))
-                y += vh
-            }
             Toast.makeText(this, "正在生成整页截图…", Toast.LENGTH_SHORT).show()
-
-            fun captureStrip(i: Int) {
-                if (i >= offsets.size) {
+            val savedScroll = webView.scrollY
+            webView.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            // Let the software layer re-render before we expand + draw.
+            webView.postDelayed({
+                try {
+                    webView.scrollTo(0, 0)
+                    webView.layout(0, 0, w, capped)
+                    val bmp = Bitmap.createBitmap(w, capped, Bitmap.Config.ARGB_8888)
+                    webView.draw(android.graphics.Canvas(bmp))
+                    saveBitmap(bmp, filename)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+                } finally {
+                    webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                    webView.requestLayout() // parent restores the normal MATCH_PARENT size
                     webView.scrollTo(0, savedScroll)
-                    saveBitmap(full, filename)
-                    return
                 }
-                val oy = offsets[i]
-                webView.scrollTo(0, oy)
-                webView.postDelayed({
-                    canvas.save()
-                    canvas.translate(0f, oy.toFloat())
-                    webView.draw(canvas)
-                    canvas.restore()
-                    captureStrip(i + 1)
-                }, 160L)
-            }
-            captureStrip(0)
+            }, 200L)
         } catch (e: Exception) {
             Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
         }
