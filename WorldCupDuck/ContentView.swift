@@ -37,6 +37,13 @@ struct AppWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .interactive
+
+        // Dark base so the rubber-band overscroll area never flashes white.
+        let dark = UIColor(red: 2.0 / 255, green: 4.0 / 255, blue: 10.0 / 255, alpha: 1)
+        webView.isOpaque = false
+        webView.backgroundColor = dark
+        webView.scrollView.backgroundColor = dark
+
         webView.load(URLRequest(url: url))
         return webView
     }

@@ -1,0 +1,14 @@
+# FCM client config — injected by CI from the GOOGLE_SERVICES_JSON_B64 secret, never committed.
+app/google-services.json
+android/app/google-services.json
+
+# Bundled background videos are downloaded during CI, not stored in the repo.
+WorldCupDuck/*.mp4
+android/app/src/main/assets/*.mp4
+
+# Build output
+build/
+.gradle/
+*.ipa
+*.apk
+Payload/

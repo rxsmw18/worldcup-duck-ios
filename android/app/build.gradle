@@ -3,6 +3,12 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Only wire up FCM when google-services.json is present (written by CI from a secret).
+// Without it the APK still builds; FCM stays inert and the app falls back to in-app reminders.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+}
+
 android {
     namespace 'com.duck.worldcup'
     compileSdk 34
@@ -11,8 +17,8 @@ android {
         applicationId 'com.duck.worldcup'
         minSdk 24
         targetSdk 34
-        versionCode 4
-        versionName '1.0.3'
+        versionCode 5
+        versionName '1.0.4'
     }
 
     // Keep the bundled mp4 backgrounds uncompressed so they can be served via openFd().
@@ -38,4 +44,8 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    // FCM for real system-tray push (active only when google-services.json is bundled).
+    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+    implementation 'com.google.firebase:firebase-messaging'
 }

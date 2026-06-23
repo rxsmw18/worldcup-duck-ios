@@ -2,7 +2,9 @@ package com.duck.worldcup
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -38,12 +40,32 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1001)
         }
 
+        // Android 13+ needs a runtime grant to post notifications.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002)
+        }
+
+        // FCM: create the channel + send our device token to the backend.
+        // Guarded so the app still runs when google-services.json isn't bundled (FCM disabled).
+        DuckMessagingService.ensureChannel(getSystemService(NotificationManager::class.java))
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token -> DuckMessagingService.registerToken(this, token) }
+        } catch (e: Exception) {
+            /* FCM not configured -> in-app reminders only */
+        }
+
         webView = WebView(this)
         webView.layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         )
         setContentView(webView)
+
+        // Dark base + no overscroll stretch so the top/bottom overscroll never flashes white.
+        webView.setBackgroundColor(0xFF02040A.toInt())
+        webView.overScrollMode = android.view.View.OVER_SCROLL_NEVER
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -79,7 +101,25 @@ class MainActivity : Activity() {
         webView.webChromeClient = WebChromeClient()
 
         if (savedInstanceState == null) {
-            webView.loadUrl("https://duck.gobet365.win/")
+            webView.loadUrl(resolveStartUrl(intent))
+        }
+    }
+
+    // Open the URL carried by a tapped notification, defaulting to the home page.
+    private fun resolveStartUrl(launchIntent: Intent?): String {
+        val open = launchIntent?.getStringExtra("open_url")
+        return when {
+            open.isNullOrBlank() -> "$BASE_URL/"
+            open.startsWith("http") -> open
+            open.startsWith("/") -> BASE_URL + open
+            else -> "$BASE_URL/$open"
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.getStringExtra("open_url") != null && ::webView.isInitialized) {
+            webView.loadUrl(resolveStartUrl(intent))
         }
     }
 
@@ -227,6 +267,8 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val BASE_URL = "https://duck.gobet365.win"
+
         // Alias the @JavascriptInterface object to the function the web app calls.
         private const val BRIDGE_JS = """
             (function(){

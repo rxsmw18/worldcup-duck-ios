@@ -35,6 +35,17 @@ jobs:
           curl -fsSL https://duck.gobet365.win/assets/fifa26-analysis.mp4 -o app/src/main/assets/fifa26-analysis.mp4
           ls -lh app/src/main/assets/*.mp4
 
+      - name: Write google-services.json (FCM, if configured)
+        run: |
+          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > app/google-services.json
+            echo "google-services.json written ($(wc -c < app/google-services.json) bytes)"
+          else
+            echo "GOOGLE_SERVICES_JSON_B64 secret not set; building without FCM"
+          fi
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+
       - name: Install SDK packages
         run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 
