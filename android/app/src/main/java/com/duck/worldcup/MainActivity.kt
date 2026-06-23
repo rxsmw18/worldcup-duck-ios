@@ -139,6 +139,29 @@ class MainActivity : Activity() {
         fun saveImage(base64Png: String, filename: String) {
             runOnUiThread { doSaveImage(base64Png, filename) }
         }
+
+        // Called from window.DuckNativeCapture(filename) -> native screenshot of the WebView.
+        @JavascriptInterface
+        fun captureScreen(filename: String) {
+            runOnUiThread { doCaptureScreen(filename) }
+        }
+    }
+
+    // Pixel-perfect screenshot of the visible WebView, saved to the gallery.
+    private fun doCaptureScreen(filename: String) {
+        try {
+            val w = webView.width
+            val h = webView.height
+            if (w <= 0 || h <= 0) {
+                Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            webView.draw(android.graphics.Canvas(bmp))
+            saveBitmap(bmp, filename)
+        } catch (e: Exception) {
+            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun doSaveImage(base64Png: String, filename: String) {
@@ -149,6 +172,14 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
                 return
             }
+            saveBitmap(bmp, filename)
+        } catch (e: Exception) {
+            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun saveBitmap(bmp: Bitmap, filename: String) {
+        try {
             val name = if (filename.endsWith(".png", true)) filename else "$filename.png"
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -203,6 +234,9 @@ class MainActivity : Activity() {
               window.__duckBridgeReady = true;
               window.DuckNativeSaveImage = function(b64, name){
                 try { DuckNative.saveImage(b64, name || 'image.png'); } catch(e){}
+              };
+              window.DuckNativeCapture = function(name){
+                try { DuckNative.captureScreen(name || 'image.png'); } catch(e){}
               };
             })();
         """

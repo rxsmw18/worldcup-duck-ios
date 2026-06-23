@@ -30,6 +30,7 @@ struct AppWebView: UIViewRepresentable {
                                               injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false))
         controller.add(context.coordinator, name: "duckSaveImage")
+        controller.add(context.coordinator, name: "duckCapture")
         configuration.userContentController = controller
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -51,6 +52,11 @@ struct AppWebView: UIViewRepresentable {
       window.DuckNativeSaveImage = function (b64, name) {
         try {
           window.webkit.messageHandlers.duckSaveImage.postMessage({ data: b64, name: name || 'image.png' });
+        } catch (e) {}
+      };
+      window.DuckNativeCapture = function (name) {
+        try {
+          window.webkit.messageHandlers.duckCapture.postMessage({ name: name || 'image.png' });
         } catch (e) {}
       };
       var FILES = ['fifa26-hero.mp4', 'fifa26-analysis.mp4'];
@@ -108,18 +114,32 @@ struct AppWebView: UIViewRepresentable {
             UIApplication.shared.open(url)
         }
 
-        // Receive the base64 PNG from the web screenshot button and save it to Photos.
-        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "duckSaveImage",
-                  let body = message.body as? [String: Any],
-                  let b64 = body["data"] as? String,
-                  let data = Data(base64Encoded: b64),
-                  let image = UIImage(data: data) else { return }
+        // Save a UIImage to the Photos library (add-only authorization).
+        private func saveToPhotos(_ image: UIImage) {
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
                 guard status == .authorized || status == .limited else { return }
                 PHPhotoLibrary.shared().performChanges({
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
                 }, completionHandler: nil)
+            }
+        }
+
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            // Native pixel-perfect screenshot of the visible webview -> Photos.
+            if message.name == "duckCapture" {
+                let config = WKSnapshotConfiguration()
+                message.webView?.takeSnapshot(with: config) { [weak self] image, _ in
+                    if let image = image { self?.saveToPhotos(image) }
+                }
+                return
+            }
+            // Receive a base64 PNG from the web screenshot button and save it to Photos.
+            if message.name == "duckSaveImage",
+               let body = message.body as? [String: Any],
+               let b64 = body["data"] as? String,
+               let data = Data(base64Encoded: b64),
+               let image = UIImage(data: data) {
+                saveToPhotos(image)
             }
         }
     }
