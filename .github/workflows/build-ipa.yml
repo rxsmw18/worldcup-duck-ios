@@ -28,6 +28,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Fetch bundled background videos
+        run: |
+          set -euo pipefail
+          curl -fsSL https://duck.gobet365.win/assets/fifa26-hero.mp4 -o WorldCupDuck/fifa26-hero.mp4
+          curl -fsSL https://duck.gobet365.win/assets/fifa26-analysis.mp4 -o WorldCupDuck/fifa26-analysis.mp4
+          ls -lh WorldCupDuck/*.mp4
+
       - name: Generate Xcode project
         run: xcodegen generate
 
