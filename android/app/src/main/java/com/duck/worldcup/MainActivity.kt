@@ -64,7 +64,7 @@ class MainActivity : Activity() {
         }
 
         // Background poll -> local notifications. Works on GMS-less (Chinese) phones.
-        val pollWork = PeriodicWorkRequestBuilder<NotifyPollWorker>(15, TimeUnit.MINUTES)
+        val pollWork = PeriodicWorkRequestBuilder<NotifyPollWorker>(15L, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -212,7 +212,7 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
                 return
             }
-            val total = webView.computeVerticalScrollRange().coerceAtLeast(vh)
+            val total = (webView.contentHeight * resources.displayMetrics.density).toInt().coerceAtLeast(vh)
             // Single viewport is enough -> capture directly.
             if (total <= vh) {
                 val bmp = Bitmap.createBitmap(w, vh, Bitmap.Config.ARGB_8888)
@@ -248,7 +248,7 @@ class MainActivity : Activity() {
                     webView.draw(canvas)
                     canvas.restore()
                     captureStrip(i + 1)
-                }, 160)
+                }, 160L)
             }
             captureStrip(0)
         } catch (e: Exception) {

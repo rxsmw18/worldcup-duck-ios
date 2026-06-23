@@ -24,7 +24,7 @@ class DuckMessagingService : FirebaseMessagingService() {
         val title = message.notification?.title ?: message.data["title"] ?: "大黄鸭世界杯预测"
         val body = message.notification?.body ?: message.data["body"] ?: ""
         val url = message.data["url"] ?: "/"
-        val id = message.data["id"]?.toIntOrNull() ?: (System.currentTimeMillis() and 0x7fffffff).toInt()
+        val id = message.data["id"]?.toIntOrNull() ?: (System.currentTimeMillis() and 0x7fffffffL).toInt()
         postNotification(applicationContext, id, title, body, url)
     }
 
