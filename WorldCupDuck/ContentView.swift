@@ -121,6 +121,43 @@ struct AppWebView: UIViewRepresentable {
             UIApplication.shared.open(url)
         }
 
+        // Full-page screenshot: temporarily expand the webview to its full content size,
+        // snapshot the whole rect, then restore the original frame/scroll.
+        private func captureFullPage(_ webView: WKWebView) {
+            let scrollView = webView.scrollView
+            let fullSize = scrollView.contentSize
+
+            // Oversized pages exceed the snapshot texture limit -> just grab the viewport.
+            guard fullSize.height > 0, fullSize.width > 0, fullSize.height <= 16000 else {
+                webView.takeSnapshot(with: WKSnapshotConfiguration()) { [weak self] image, _ in
+                    if let image = image { self?.saveToPhotos(image) }
+                }
+                return
+            }
+
+            let originalFrame = webView.frame
+            let originalOffset = scrollView.contentOffset
+            let originalInset = scrollView.contentInset
+
+            webView.frame = CGRect(x: 0, y: 0, width: fullSize.width, height: fullSize.height)
+            scrollView.contentInset = .zero
+            scrollView.contentOffset = .zero
+
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: fullSize.width, height: fullSize.height)
+            if #available(iOS 13.0, *) { config.afterScreenUpdates = true }
+
+            // Let the expanded layout settle before snapshotting.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                webView.takeSnapshot(with: config) { [weak self] image, _ in
+                    webView.frame = originalFrame
+                    scrollView.contentInset = originalInset
+                    scrollView.contentOffset = originalOffset
+                    if let image = image { self?.saveToPhotos(image) }
+                }
+            }
+        }
+
         // Save a UIImage to the Photos library (add-only authorization).
         private func saveToPhotos(_ image: UIImage) {
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
@@ -132,12 +169,10 @@ struct AppWebView: UIViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            // Native pixel-perfect screenshot of the visible webview -> Photos.
+            // Native full-page screenshot of the webview -> Photos.
             if message.name == "duckCapture" {
-                let config = WKSnapshotConfiguration()
-                message.webView?.takeSnapshot(with: config) { [weak self] image, _ in
-                    if let image = image { self?.saveToPhotos(image) }
-                }
+                guard let webView = message.webView else { return }
+                captureFullPage(webView)
                 return
             }
             // Receive a base64 PNG from the web screenshot button and save it to Photos.

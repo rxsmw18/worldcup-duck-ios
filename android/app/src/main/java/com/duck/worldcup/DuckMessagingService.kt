@@ -12,6 +12,8 @@ import com.google.firebase.messaging.RemoteMessage
 import java.net.HttpURLConnection
 import java.net.URL
 
+// FCM service — only active on devices with Google Play Services. On GMS-less Chinese
+// phones the app instead relies on NotifyPollWorker (local polling + local notifications).
 class DuckMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
@@ -22,34 +24,8 @@ class DuckMessagingService : FirebaseMessagingService() {
         val title = message.notification?.title ?: message.data["title"] ?: "大黄鸭世界杯预测"
         val body = message.notification?.body ?: message.data["body"] ?: ""
         val url = message.data["url"] ?: "/"
-        showNotification(title, body, url)
-    }
-
-    private fun showNotification(title: String, body: String, url: String) {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        ensureChannel(nm)
-
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("open_url", url)
-        }
-        val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
-        val pi = PendingIntent.getActivity(this, url.hashCode(), intent, piFlags)
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pi)
-            .build()
-        nm.notify(System.currentTimeMillis().toInt(), notification)
+        val id = message.data["id"]?.toIntOrNull() ?: (System.currentTimeMillis() and 0x7fffffff).toInt()
+        postNotification(applicationContext, id, title, body, url)
     }
 
     companion object {
@@ -61,6 +37,35 @@ class DuckMessagingService : FirebaseMessagingService() {
                 channel.description = "比赛开始/比分/结束 与每日预测提醒"
                 nm.createNotificationChannel(channel)
             }
+        }
+
+        // Post a system-tray notification. notifId stable per event so FCM + the poll worker
+        // can't double-post the same item (same id replaces).
+        fun postNotification(context: Context, notifId: Int, title: String, body: String, url: String) {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            ensureChannel(nm)
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("open_url", url)
+            }
+            val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pi = PendingIntent.getActivity(context, notifId, intent, piFlags)
+
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pi)
+                .build()
+            nm.notify(notifId, notification)
         }
 
         // POST the FCM token to our backend so the server knows where to push.

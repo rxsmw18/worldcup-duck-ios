@@ -21,7 +21,13 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import java.io.ByteArrayInputStream
+import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
 
@@ -46,15 +52,24 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002)
         }
 
-        // FCM: create the channel + send our device token to the backend.
-        // Guarded so the app still runs when google-services.json isn't bundled (FCM disabled).
+        // Notification channel.
         DuckMessagingService.ensureChannel(getSystemService(NotificationManager::class.java))
+
+        // FCM (only works on devices with Google Play Services) — best-effort token registration.
         try {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { token -> DuckMessagingService.registerToken(this, token) }
         } catch (e: Exception) {
-            /* FCM not configured -> in-app reminders only */
+            /* no GMS -> rely on the poll worker below */
         }
+
+        // Background poll -> local notifications. Works on GMS-less (Chinese) phones.
+        val pollWork = PeriodicWorkRequestBuilder<NotifyPollWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "duck_notify_poll", ExistingPeriodicWorkPolicy.KEEP, pollWork
+        )
 
         webView = WebView(this)
         webView.layoutParams = ViewGroup.LayoutParams(
@@ -187,18 +202,55 @@ class MainActivity : Activity() {
         }
     }
 
-    // Pixel-perfect screenshot of the visible WebView, saved to the gallery.
+    // Full-page pixel-perfect screenshot: scroll the WebView in viewport-tall steps,
+    // draw each strip into one tall bitmap, then save. Restores the scroll position after.
     private fun doCaptureScreen(filename: String) {
         try {
             val w = webView.width
-            val h = webView.height
-            if (w <= 0 || h <= 0) {
+            val vh = webView.height
+            if (w <= 0 || vh <= 0) {
                 Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
                 return
             }
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            webView.draw(android.graphics.Canvas(bmp))
-            saveBitmap(bmp, filename)
+            val total = webView.computeVerticalScrollRange().coerceAtLeast(vh)
+            // Single viewport is enough -> capture directly.
+            if (total <= vh) {
+                val bmp = Bitmap.createBitmap(w, vh, Bitmap.Config.ARGB_8888)
+                webView.draw(android.graphics.Canvas(bmp))
+                saveBitmap(bmp, filename)
+                return
+            }
+            val capped = minOf(total, vh * 12) // guard against OOM on extreme pages
+            val full = Bitmap.createBitmap(w, capped, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(full)
+            val savedScroll = webView.scrollY
+
+            // Scroll offsets covering [0, capped); last clamped to the bottom.
+            val offsets = ArrayList<Int>()
+            var y = 0
+            while (y < capped) {
+                offsets.add(minOf(y, (capped - vh).coerceAtLeast(0)))
+                y += vh
+            }
+            Toast.makeText(this, "正在生成整页截图…", Toast.LENGTH_SHORT).show()
+
+            fun captureStrip(i: Int) {
+                if (i >= offsets.size) {
+                    webView.scrollTo(0, savedScroll)
+                    saveBitmap(full, filename)
+                    return
+                }
+                val oy = offsets[i]
+                webView.scrollTo(0, oy)
+                webView.postDelayed({
+                    canvas.save()
+                    canvas.translate(0f, oy.toFloat())
+                    webView.draw(canvas)
+                    canvas.restore()
+                    captureStrip(i + 1)
+                }, 160)
+            }
+            captureStrip(0)
         } catch (e: Exception) {
             Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
         }
