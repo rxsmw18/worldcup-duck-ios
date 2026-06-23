@@ -1,6 +1,6 @@
-# FCM client config — injected by CI from the GOOGLE_SERVICES_JSON_B64 secret, never committed.
-app/google-services.json
-android/app/google-services.json
+# Note: android/app/google-services.json IS committed — it's Firebase client config
+# (package-restricted API key, already ships in every APK), not a secret. The real secret
+# (the FCM service-account key) lives only in the server's gitignored web.env.
 
 # Bundled background videos are downloaded during CI, not stored in the repo.
 WorldCupDuck/*.mp4

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "353240203007",
+    "project_id": "duckxfootball",
+    "storage_bucket": "duckxfootball.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:353240203007:android:f7cb83d82808d002ced6ca",
+        "android_client_info": {
+          "package_name": "com.duck.worldcup"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUUyhTCoo--ntp0WPmy5rAnbJ9AjeP--4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
