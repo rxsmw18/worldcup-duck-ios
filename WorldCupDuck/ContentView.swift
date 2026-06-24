@@ -121,41 +121,54 @@ struct AppWebView: UIViewRepresentable {
             UIApplication.shared.open(url)
         }
 
-        // Full-page screenshot: temporarily expand the webview to its full content size,
-        // snapshot the whole rect, then restore the original frame/scroll.
+        // Full-page screenshot via scroll-and-stitch: snapshot the viewport, scroll down one
+        // viewport, snapshot again, and compose the strips into one tall image. Expanding the
+        // WKWebView frame doesn't work (SwiftUI overrides it; takeSnapshot won't capture past the
+        // visible area), so we scroll — WKWebView renders each position correctly.
         private func captureFullPage(_ webView: WKWebView) {
             let scrollView = webView.scrollView
-            let fullSize = scrollView.contentSize
+            let width = scrollView.bounds.width
+            let viewportH = scrollView.bounds.height
+            let totalH = scrollView.contentSize.height
+            let savedOffset = scrollView.contentOffset
 
-            // Oversized pages exceed the snapshot texture limit -> just grab the viewport.
-            guard fullSize.height > 0, fullSize.width > 0, fullSize.height <= 16000 else {
+            // Short page -> a single viewport snapshot is enough.
+            guard viewportH > 0, width > 0, totalH > viewportH + 1 else {
                 webView.takeSnapshot(with: WKSnapshotConfiguration()) { [weak self] image, _ in
                     if let image = image { self?.saveToPhotos(image) }
                 }
                 return
             }
 
-            let originalFrame = webView.frame
-            let originalOffset = scrollView.contentOffset
-            let originalInset = scrollView.contentInset
+            let cappedH = min(totalH, viewportH * 12) // guard against extreme pages
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: cappedH))
+            var strips: [(CGFloat, UIImage)] = []
 
-            webView.frame = CGRect(x: 0, y: 0, width: fullSize.width, height: fullSize.height)
-            scrollView.contentInset = .zero
-            scrollView.contentOffset = .zero
-
-            let config = WKSnapshotConfiguration()
-            config.rect = CGRect(x: 0, y: 0, width: fullSize.width, height: fullSize.height)
-            if #available(iOS 13.0, *) { config.afterScreenUpdates = true }
-
-            // Let the expanded layout settle before snapshotting.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                webView.takeSnapshot(with: config) { [weak self] image, _ in
-                    webView.frame = originalFrame
-                    scrollView.contentInset = originalInset
-                    scrollView.contentOffset = originalOffset
-                    if let image = image { self?.saveToPhotos(image) }
+            func snapStrip(at targetY: CGFloat) {
+                scrollView.setContentOffset(CGPoint(x: 0, y: targetY), animated: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    let config = WKSnapshotConfiguration()
+                    config.rect = CGRect(x: 0, y: 0, width: width, height: viewportH)
+                    if #available(iOS 13.0, *) { config.afterScreenUpdates = true }
+                    webView.takeSnapshot(with: config) { [weak self] image, _ in
+                        let actualY = scrollView.contentOffset.y
+                        if let image = image { strips.append((actualY, image)) }
+                        let next = actualY + viewportH
+                        if next < cappedH - 1 {
+                            snapStrip(at: min(next, cappedH - viewportH))
+                        } else {
+                            let full = renderer.image { _ in
+                                for (oy, img) in strips {
+                                    img.draw(in: CGRect(x: 0, y: oy, width: width, height: viewportH))
+                                }
+                            }
+                            scrollView.setContentOffset(savedOffset, animated: false)
+                            self?.saveToPhotos(full)
+                        }
+                    }
                 }
             }
+            snapStrip(at: 0)
         }
 
         // Save a UIImage to the Photos library (add-only authorization).
