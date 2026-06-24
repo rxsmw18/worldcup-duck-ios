@@ -15,8 +15,6 @@ import android.util.Base64
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -26,15 +24,11 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import java.io.ByteArrayInputStream
 import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
-
-    // Background videos bundled in assets/ so they play instantly offline.
-    private val bundledVideos = setOf("fifa26-hero.mp4", "fifa26-analysis.mp4")
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,15 +88,10 @@ class MainActivity : Activity() {
 
         webView.addJavascriptInterface(DuckBridge(), "DuckNative")
 
+        // NOTE: we do NOT intercept the /assets/*.mp4 video requests. Android WebView's media
+        // player can't reliably play video served via shouldInterceptRequest, so the background
+        // video stayed on its poster. Letting it load from the network plays it normally.
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-                val name = request.url.lastPathSegment ?: return null
-                if (request.url.path?.contains("/assets/") == true && bundledVideos.contains(name)) {
-                    return serveBundledVideo(name, request)
-                }
-                return null
-            }
-
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 view.evaluateJavascript(BRIDGE_JS, null)
@@ -138,56 +127,6 @@ class MainActivity : Activity() {
         }
     }
 
-    // Stream a bundled mp4 from assets/, honouring byte-range requests so the
-    // WebView media player can start and loop the background video reliably.
-    private fun serveBundledVideo(name: String, request: WebResourceRequest): WebResourceResponse? {
-        return try {
-            val total = assets.openFd(name).use { it.length.toInt() }
-            val headers = HashMap<String, String>()
-            headers["Accept-Ranges"] = "bytes"
-            headers["Access-Control-Allow-Origin"] = "*"
-
-            val rangeHeader = request.requestHeaders["Range"]
-            var start = 0
-            var end = total - 1
-            var status = 200
-            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                val spec = rangeHeader.removePrefix("bytes=").split("-")
-                val s = spec.getOrNull(0)?.toIntOrNull() ?: 0
-                val e = spec.getOrNull(1)?.takeIf { it.isNotEmpty() }?.toIntOrNull()?.coerceAtMost(total - 1) ?: (total - 1)
-                if (s in 0..e && s < total) {
-                    start = s; end = e; status = 206
-                    headers["Content-Range"] = "bytes $start-$end/$total"
-                }
-            }
-
-            val length = end - start + 1
-            val buffer = ByteArray(length)
-            assets.open(name).use { input ->
-                var skipped = 0L
-                while (skipped < start) {
-                    val n = input.skip((start - skipped))
-                    if (n <= 0) break
-                    skipped += n
-                }
-                var off = 0
-                while (off < length) {
-                    val r = input.read(buffer, off, length - off)
-                    if (r < 0) break
-                    off += r
-                }
-            }
-            headers["Content-Length"] = length.toString()
-
-            WebResourceResponse(
-                "video/mp4", null, status, if (status == 206) "Partial Content" else "OK",
-                headers, ByteArrayInputStream(buffer)
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     inner class DuckBridge {
         // Called from window.DuckNativeSaveImage(base64, filename) in the web app.
         @JavascriptInterface
@@ -202,49 +141,21 @@ class MainActivity : Activity() {
         }
     }
 
-    // Full-page screenshot. Android WebView is hardware-accelerated and only paints the visible
-    // tiles, so drawing scrolled content to a software Canvas comes out black. We therefore switch
-    // the WebView to a SOFTWARE layer (which renders the whole document) and lay it out at full
-    // content height, then a single draw() captures the entire page. The <video> background can't
-    // render in software mode, so it appears dark in the capture (same as the web html2canvas path).
+    // Screenshot of the visible screen, saved to the gallery. (Android WebView can't reliably
+    // capture the full scrollable page in-app — both scroll-stitch and software-layer attempts
+    // came out black / top-only — so we capture the visible viewport. For a full-page long
+    // screenshot, use the phone's built-in 滚动截图/长截图 system feature.)
     private fun doCaptureScreen(filename: String) {
         try {
             val w = webView.width
-            val vh = webView.height
-            if (w <= 0 || vh <= 0) {
+            val h = webView.height
+            if (w <= 0 || h <= 0) {
                 Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
                 return
             }
-            val fullH = (webView.contentHeight * resources.displayMetrics.density).toInt().coerceAtLeast(vh)
-            val capped = minOf(fullH, vh * 12) // guard against OOM on extreme pages
-
-            // Short page -> the visible hardware layer is fine, capture directly.
-            if (capped <= vh) {
-                val bmp = Bitmap.createBitmap(w, vh, Bitmap.Config.ARGB_8888)
-                webView.draw(android.graphics.Canvas(bmp))
-                saveBitmap(bmp, filename)
-                return
-            }
-
-            Toast.makeText(this, "正在生成整页截图…", Toast.LENGTH_SHORT).show()
-            val savedScroll = webView.scrollY
-            webView.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-            // Let the software layer re-render before we expand + draw.
-            webView.postDelayed({
-                try {
-                    webView.scrollTo(0, 0)
-                    webView.layout(0, 0, w, capped)
-                    val bmp = Bitmap.createBitmap(w, capped, Bitmap.Config.ARGB_8888)
-                    webView.draw(android.graphics.Canvas(bmp))
-                    saveBitmap(bmp, filename)
-                } catch (e: Exception) {
-                    Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
-                } finally {
-                    webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                    webView.requestLayout() // parent restores the normal MATCH_PARENT size
-                    webView.scrollTo(0, savedScroll)
-                }
-            }, 200L)
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            webView.draw(android.graphics.Canvas(bmp))
+            saveBitmap(bmp, filename)
         } catch (e: Exception) {
             Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
         }

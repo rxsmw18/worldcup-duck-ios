@@ -27,14 +27,6 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Fetch bundled background videos
-        run: |
-          set -euo pipefail
-          mkdir -p app/src/main/assets
-          curl -fsSL https://duck.gobet365.win/assets/fifa26-hero.mp4 -o app/src/main/assets/fifa26-hero.mp4
-          curl -fsSL https://duck.gobet365.win/assets/fifa26-analysis.mp4 -o app/src/main/assets/fifa26-analysis.mp4
-          ls -lh app/src/main/assets/*.mp4
-
       - name: Write google-services.json (FCM, if configured)
         run: |
           if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then

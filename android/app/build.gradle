@@ -17,13 +17,8 @@ android {
         applicationId 'com.duck.worldcup'
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName '1.0.6'
-    }
-
-    // Keep the bundled mp4 backgrounds uncompressed so they can be served via openFd().
-    androidResources {
-        noCompress 'mp4'
+        versionCode 8
+        versionName '1.0.7'
     }
 
     buildTypes {
